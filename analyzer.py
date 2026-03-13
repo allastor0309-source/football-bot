@@ -96,6 +96,87 @@ class FootballAnalyzer:
             self._team_cache[t["id"]] = t
         return teams
 
+    def get_live_matches(self) -> list:
+        """Повертає матчі що зараз грають"""
+        if self._src == "apisports":
+            return self._as_live()
+        elif self._src == "footballdata":
+            return self._fd_live()
+        else:
+            return self._demo_live()
+
+    def _as_live(self) -> list:
+        try:
+            data = self._as_req("fixtures", {"live": "all"})
+            result = []
+            for fix in data.get("response", [])[:20]:
+                teams  = fix["teams"]
+                goals  = fix["goals"]
+                status = fix["fixture"]["status"]
+                lg     = fix["league"]
+                result.append({
+                    "home":       teams["home"]["name"],
+                    "away":       teams["away"]["name"],
+                    "home_id":    str(teams["home"]["id"]),
+                    "away_id":    str(teams["away"]["id"]),
+                    "score_home": goals.get("home", 0) or 0,
+                    "score_away": goals.get("away", 0) or 0,
+                    "minute":     status.get("elapsed") or "?",
+                    "status":     status.get("short", "LIVE"),
+                    "league":     lg.get("name", ""),
+                })
+            return result
+        except Exception:
+            return []
+
+    def _fd_live(self) -> list:
+        try:
+            data = self._fd_req("matches", {"status": "IN_PLAY,PAUSED,HALFTIME"})
+            result = []
+            for m in data.get("matches", [])[:20]:
+                h  = m["homeTeam"]
+                a  = m["awayTeam"]
+                sc = m.get("score", {}).get("fullTime", {})
+                hid = str(h["id"]); aid = str(a["id"])
+                minute = m.get("minute")
+                status_map = {"IN_PLAY": "LIVE", "PAUSED": "HT", "HALFTIME": "HT"}
+                raw_status = m.get("status", "IN_PLAY")
+                result.append({
+                    "home":       h.get("shortName") or h["name"],
+                    "away":       a.get("shortName") or a["name"],
+                    "home_id":    hid,
+                    "away_id":    aid,
+                    "score_home": sc.get("home", 0) or 0,
+                    "score_away": sc.get("away", 0) or 0,
+                    "minute":     minute or "?",
+                    "status":     status_map.get(raw_status, "LIVE"),
+                    "league":     m.get("competition", {}).get("name", ""),
+                })
+            return result
+        except Exception:
+            return []
+
+    def _demo_live(self) -> list:
+        """Демо-дані для живих матчів — включають аномальні ситуації"""
+        return [
+            {"home": "Arsenal",        "away": "Chelsea",
+             "home_id": "2002",        "away_id": "2004",
+             "score_home": 0,          "score_away": 0,
+             "minute": 63,             "status": "2H",   "league": "АПЛ"},
+            {"home": "Real Madrid",    "away": "Atletico",
+             "home_id": "3001",        "away_id": "3003",
+             "score_home": 0,          "score_away": 0,
+             "minute": 71,             "status": "2H",   "league": "Ла Ліга"},
+            {"home": "Bayern Munich",  "away": "Dortmund",
+             "home_id": "4001",        "away_id": "4003",
+             "score_home": 1,          "score_away": 0,
+             "minute": 58,             "status": "2H",   "league": "Бундесліга"},
+            {"home": "Liverpool",      "away": "Man United",
+             "home_id": "2003",        "away_id": "2006",
+             "score_home": 0,          "score_away": 0,
+             "minute": 44,             "status": "1H",   "league": "АПЛ"},
+        ]
+
     def get_today_matches(self) -> list:
         if self._src == "apisports":    return self._as_today()
         if self._src == "footballdata": return self._fd_today()
@@ -348,6 +429,158 @@ class FootballAnalyzer:
             "h2h": h2h,
             "source": self.source_label(),
         }
+
+    # ── ANOMALY DETECTION ───────────────────────────────────────────────────────
+
+    def find_anomalies(self) -> list:
+        """
+        Шукає live матчі де статистика команд вказує на гол,
+        але рахунок ще не відкрито або нижчий за очікуваний.
+        Повертає список аномалій з поясненням і score.
+        """
+        live = self.get_live_matches()
+        if not live:
+            return []
+
+        anomalies = []
+        for m in live:
+            sh = m.get("score_home", 0)
+            sa = m.get("score_away", 0)
+            minute = m.get("minute")
+            status = m.get("status", "")
+
+            # Пропускаємо перерву і матчі без хвилини
+            if status == "HT" or not isinstance(minute, int):
+                continue
+
+            # Отримуємо статистику команд
+            try:
+                H = self._get_team_stats_cached(m["home_id"])
+                A = self._get_team_stats_cached(m["away_id"])
+            except Exception:
+                continue
+
+            xg_h = H["avg_scored"] * 0.55 + A["avg_conceded"] * 0.45 + H.get("home_bonus", 0.10)
+            xg_a = A["avg_scored"] * 0.55 + H["avg_conceded"] * 0.45
+            xg_total = xg_h + xg_a
+
+            # Очікувані голи на поточну хвилину
+            expected_by_now = xg_total * (minute / 90)
+            actual_goals    = sh + sa
+            goal_deficit    = round(expected_by_now - actual_goals, 2)
+
+            signals  = []
+            score    = 0  # чим більше — тим аномальніша ситуація
+
+            # ── Сигнал 1: обидві команди забивні, рахунок 0:0 після 55+ хв
+            if sh == 0 and sa == 0 and minute >= 55:
+                both_avg = H["avg_scored"] + A["avg_scored"]
+                if both_avg >= 2.8:
+                    signals.append(f"⚽ Обидві забивають в середньому {both_avg:.1f} г/м, але 0:0 на {minute}'")
+                    score += 35
+
+            # ── Сигнал 2: очікувані голи сильно більші за фактичні
+            if goal_deficit >= 1.0 and minute >= 40:
+                signals.append(f"📊 Очікувалось {expected_by_now:.1f} голів до {minute}', фактично: {actual_goals}")
+                score += int(goal_deficit * 20)
+
+            # ── Сигнал 3: обидві команди забивні, але тотал < 1 після 65 хв
+            if actual_goals <= 1 and minute >= 65:
+                if xg_total >= 2.5:
+                    signals.append(f"🔥 xG матчу {xg_total:.1f}, але лише {actual_goals} гол(ів) на {minute}'")
+                    score += 30
+
+            # ── Сигнал 4: атакуюча команда веде 0 голів при xG > 1.5
+            if sh == 0 and xg_h >= 1.5 and minute >= 50:
+                signals.append(f"🏠 {m['home']} забиває {H['avg_scored']:.1f} г/м — досі 0 голів на {minute}'")
+                score += 25
+
+            if sa == 0 and xg_a >= 1.3 and minute >= 50:
+                signals.append(f"✈️ {m['away']} забиває {A['avg_scored']:.1f} г/м — досі 0 голів на {minute}'")
+                score += 20
+
+            # ── Сигнал 5: форма обох команд переважно W/W, матч порожній
+            form_score_h = sum(3 if c=="W" else 1 if c=="D" else 0 for c in H.get("form",""))
+            form_score_a = sum(3 if c=="W" else 1 if c=="D" else 0 for c in A.get("form",""))
+            if form_score_h >= 12 and form_score_a >= 12 and actual_goals == 0 and minute >= 60:
+                signals.append(f"📈 Обидві команди у топ-формі (W-серії), матч порожній на {minute}'")
+                score += 20
+
+            # ── Сигнал 6: рахунок менший ніж у H2H зазвичай
+            avg_h2h_goals = self._avg_h2h_goals(m["home_id"], m["away_id"])
+            if avg_h2h_goals >= 2.8 and actual_goals == 0 and minute >= 50:
+                signals.append(f"📖 H2H середній тотал {avg_h2h_goals:.1f}, зараз {actual_goals} на {minute}'")
+                score += 15
+
+            if signals and score >= 25:
+                # Ймовірність голу в залишок матчу
+                remaining = max(90 - minute, 1)
+                xg_remaining = xg_total * (remaining / 90) * 1.15  # тиск зростає
+                prob_goal = round((1 - math.exp(-xg_remaining)) * 100)
+
+                anomalies.append({
+                    "home":       m["home"],
+                    "away":       m["away"],
+                    "home_id":    m["home_id"],
+                    "away_id":    m["away_id"],
+                    "score":      f"{sh}:{sa}",
+                    "minute":     minute,
+                    "league":     m.get("league", ""),
+                    "signals":    signals,
+                    "anomaly_score": min(score, 99),
+                    "prob_goal":  prob_goal,
+                    "xg_total":   round(xg_total, 2),
+                    "remaining":  remaining,
+                })
+
+        # Сортуємо за силою аномалії
+        anomalies.sort(key=lambda x: x["anomaly_score"], reverse=True)
+        return anomalies
+
+    def _get_team_stats_cached(self, team_id: str) -> dict:
+        """Кешовані статистики команди — спочатку демо/кеш, потім API"""
+        cache_key = f"stats_{team_id}"
+        if cache_key in self._team_cache:
+            return self._team_cache[cache_key]
+
+        # Спочатку шукаємо в демо даних
+        for teams in DEMO_TEAMS.values():
+            for t in teams:
+                if str(t["id"]) == str(team_id):
+                    self._team_cache[cache_key] = t
+                    return t
+
+        # Якщо є API — запитуємо
+        if self._src == "apisports":
+            stats = self._as_stats(team_id)
+        elif self._src == "footballdata":
+            stats = self._fd_stats(team_id)
+        else:
+            stats = self._fallback(team_id)
+
+        self._team_cache[cache_key] = stats
+        return stats
+
+    def _avg_h2h_goals(self, home_id: str, away_id: str) -> float:
+        """Середній тотал голів в очних зустрічах"""
+        try:
+            if self._src == "apisports":
+                h2h = self._as_h2h(home_id, away_id)
+            elif self._src == "footballdata":
+                h2h = self._fd_h2h(home_id, away_id)
+            else:
+                h2h = self._demo_h2h("H", "A")
+
+            if not h2h:
+                return 2.5
+            totals = []
+            for m in h2h:
+                parts = m["score"].split(":")
+                if len(parts) == 2:
+                    totals.append(int(parts[0]) + int(parts[1]))
+            return round(sum(totals) / len(totals), 1) if totals else 2.5
+        except Exception:
+            return 2.5
 
     def _poisson(self, lam: float, k: int) -> float:
         return math.exp(-lam) * (lam ** k) / math.factorial(k)
