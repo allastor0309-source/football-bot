@@ -1,573 +1,607 @@
 import os
 import math
-import logging
-from datetime import datetime, timezone, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler,
-    MessageHandler, filters, ContextTypes
-)
-from analyzer import FootballAnalyzer
+import requests
+from datetime import datetime
+from dotenv import load_dotenv
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+load_dotenv()
 
-analyzer = FootballAnalyzer()
+APISPORTS_KEY    = os.getenv("APISPORTS_KEY", "")
+FOOTBALLDATA_KEY = os.getenv("FOOTBALLDATA_KEY", "")
 
-# ─── КОМАНДИ ───────────────────────────────────────────────────────────────────
+DEMO_TEAMS = {
+    "ukr": [
+        {"id": "1001", "name": "Динамо Київ",     "avg_scored": 1.85, "avg_conceded": 0.72, "form": "WWDWLW", "home_bonus": 0.18},
+        {"id": "1002", "name": "Шахтар Донецьк",  "avg_scored": 1.72, "avg_conceded": 0.85, "form": "WWWDWL", "home_bonus": 0.14},
+        {"id": "1003", "name": "Ворскла Полтава",  "avg_scored": 1.10, "avg_conceded": 1.25, "form": "DLWLWD", "home_bonus": 0.08},
+        {"id": "1004", "name": "Дніпро-1",         "avg_scored": 1.30, "avg_conceded": 1.10, "form": "WLDWDW", "home_bonus": 0.10},
+        {"id": "1005", "name": "Зоря Луганськ",    "avg_scored": 1.20, "avg_conceded": 1.15, "form": "DWLLWD", "home_bonus": 0.07},
+        {"id": "1006", "name": "Металіст 1925",    "avg_scored": 1.15, "avg_conceded": 1.20, "form": "WDLWDL", "home_bonus": 0.09},
+        {"id": "1007", "name": "Рух Львів",        "avg_scored": 1.05, "avg_conceded": 1.35, "form": "LLWDLW", "home_bonus": 0.07},
+        {"id": "1008", "name": "Олімпік Донецьк",  "avg_scored": 0.95, "avg_conceded": 1.45, "form": "LLDLWL", "home_bonus": 0.06},
+    ],
+    "epl": [
+        {"id": "2001", "name": "Manchester City",   "avg_scored": 2.45, "avg_conceded": 0.68, "form": "WWWWDW", "home_bonus": 0.22},
+        {"id": "2002", "name": "Arsenal",           "avg_scored": 2.20, "avg_conceded": 0.75, "form": "WWDWWL", "home_bonus": 0.20},
+        {"id": "2003", "name": "Liverpool",         "avg_scored": 2.30, "avg_conceded": 0.82, "form": "WWWLWW", "home_bonus": 0.21},
+        {"id": "2004", "name": "Chelsea",           "avg_scored": 1.80, "avg_conceded": 1.10, "form": "WDLWWD", "home_bonus": 0.15},
+        {"id": "2005", "name": "Tottenham",         "avg_scored": 1.65, "avg_conceded": 1.20, "form": "DLWLWD", "home_bonus": 0.13},
+        {"id": "2006", "name": "Man United",        "avg_scored": 1.50, "avg_conceded": 1.30, "form": "LWDWLL", "home_bonus": 0.12},
+        {"id": "2007", "name": "Newcastle",         "avg_scored": 1.70, "avg_conceded": 1.05, "form": "WWDWDW", "home_bonus": 0.14},
+        {"id": "2008", "name": "Aston Villa",       "avg_scored": 1.75, "avg_conceded": 1.00, "form": "WDWWLW", "home_bonus": 0.15},
+    ],
+    "esp": [
+        {"id": "3001", "name": "Real Madrid",       "avg_scored": 2.50, "avg_conceded": 0.70, "form": "WWWWWL", "home_bonus": 0.23},
+        {"id": "3002", "name": "Barcelona",         "avg_scored": 2.40, "avg_conceded": 0.80, "form": "WWDWWW", "home_bonus": 0.22},
+        {"id": "3003", "name": "Atletico Madrid",   "avg_scored": 1.90, "avg_conceded": 0.75, "form": "WWWDLW", "home_bonus": 0.18},
+        {"id": "3004", "name": "Sevilla",           "avg_scored": 1.40, "avg_conceded": 1.15, "form": "DLWDWL", "home_bonus": 0.11},
+        {"id": "3005", "name": "Villarreal",        "avg_scored": 1.55, "avg_conceded": 1.10, "form": "WDWLWD", "home_bonus": 0.12},
+        {"id": "3006", "name": "Real Sociedad",     "avg_scored": 1.60, "avg_conceded": 1.05, "form": "DWWLWD", "home_bonus": 0.13},
+    ],
+    "ger": [
+        {"id": "4001", "name": "Bayern Munich",     "avg_scored": 2.80, "avg_conceded": 0.85, "form": "WWWWLW", "home_bonus": 0.25},
+        {"id": "4002", "name": "Bayer Leverkusen",  "avg_scored": 2.30, "avg_conceded": 0.90, "form": "WWWDWW", "home_bonus": 0.20},
+        {"id": "4003", "name": "Borussia Dortmund", "avg_scored": 2.10, "avg_conceded": 1.10, "form": "WDWWLW", "home_bonus": 0.18},
+        {"id": "4004", "name": "RB Leipzig",        "avg_scored": 1.95, "avg_conceded": 0.95, "form": "WWLDWW", "home_bonus": 0.16},
+        {"id": "4005", "name": "Eintracht",         "avg_scored": 1.55, "avg_conceded": 1.20, "form": "DWWLDD", "home_bonus": 0.12},
+    ],
+    "ita": [
+        {"id": "5001", "name": "Inter Milan",       "avg_scored": 2.20, "avg_conceded": 0.75, "form": "WWWWDW", "home_bonus": 0.20},
+        {"id": "5002", "name": "AC Milan",          "avg_scored": 1.80, "avg_conceded": 0.90, "form": "WWDLWW", "home_bonus": 0.17},
+        {"id": "5003", "name": "Juventus",          "avg_scored": 1.70, "avg_conceded": 0.85, "form": "WDWWDL", "home_bonus": 0.15},
+        {"id": "5004", "name": "Napoli",            "avg_scored": 1.90, "avg_conceded": 1.00, "form": "WWWLWD", "home_bonus": 0.17},
+        {"id": "5005", "name": "Roma",              "avg_scored": 1.65, "avg_conceded": 1.10, "form": "DWWLWL", "home_bonus": 0.13},
+        {"id": "5006", "name": "Lazio",             "avg_scored": 1.60, "avg_conceded": 1.05, "form": "WDLWWD", "home_bonus": 0.12},
+    ],
+}
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = ReplyKeyboardMarkup(
-        [[KeyboardButton("📍 Надіслати мій часовий пояс", request_location=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-    text = (
-        "⚽ *Футбольний аналітик*\n\n"
-        "Аналізую статистику попередніх матчів і розраховую ймовірність голів "
-        "за математичною моделлю (розподіл Пуассона) — як Forebet.\n\n"
-        "📋 *Команди:*\n"
-        "/anomaly — 🚨 аномальні матчі зараз\n"
-        "/live — матчі які зараз грають\n"
-        "/match — аналіз матчу (вибір ліги та команд)\n"
-        "/today — матчі сьогодні з прогнозами\n"
-        "/leagues — список доступних ліг\n"
-        "/help — допомога\n\n"
-        "📍 Поділіться геолокацією щоб бачити час матчів у *вашому* часовому поясі:"
-    )
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
-
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (
-        "🔍 *Як користуватись ботом*\n\n"
-        "1️⃣ Введіть /match\n"
-        "2️⃣ Оберіть лігу\n"
-        "3️⃣ Оберіть домашню команду\n"
-        "4️⃣ Оберіть гостьову команду\n"
-        "5️⃣ Отримайте детальний аналіз\n\n"
-        "🔴 */live* — матчі що грають зараз (з рахунком та часом матчу)\n"
-        "📅 */today* — всі матчі на сьогодні\n\n"
-        "📊 *Що аналізується:*\n"
-        "• Форма останніх 6 матчів\n"
-        "• Середні голи (забиті / пропущені)\n"
-        "• Очна статистика H2H\n"
-        "• Очікувані голи (xG) за Пуассоном\n"
-        "• Ймовірність: 1X2, тотал 2.5, BTTS\n\n"
-        "🕐 *Часовий пояс:* надішліть /timezone щоб встановити свій час\n\n"
-        "⚙️ *Джерело даних:* API-Football або football-data.org"
-    )
-    await update.message.reply_text(text, parse_mode="Markdown")
-
-
-async def match_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    leagues = analyzer.get_leagues()
-    keyboard = []
-    for i in range(0, len(leagues), 2):
-        row = [InlineKeyboardButton(leagues[i]["name"], callback_data=f"league_{leagues[i]['id']}")]
-        if i + 1 < len(leagues):
-            row.append(InlineKeyboardButton(leagues[i+1]["name"], callback_data=f"league_{leagues[i+1]['id']}"))
-        keyboard.append(row)
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("🏆 Оберіть лігу:", reply_markup=reply_markup)
+LEAGUES = [
+    {"id": "ukr", "name": "🇺🇦 ПЛ України",   "country": "Ukraine", "apisports_id": 333, "fd_code": "PPL"},
+    {"id": "epl", "name": "🏴󠁧󠁢󠁥󠁮󠁧󠁿 АПЛ",          "country": "England", "apisports_id": 39,  "fd_code": "PL"},
+    {"id": "esp", "name": "🇪🇸 Ла Ліга",       "country": "Spain",   "apisports_id": 140, "fd_code": "PD"},
+    {"id": "ger", "name": "🇩🇪 Бундесліга",    "country": "Germany", "apisports_id": 78,  "fd_code": "BL1"},
+    {"id": "ita", "name": "🇮🇹 Серія А",       "country": "Italy",   "apisports_id": 135, "fd_code": "SA"},
+    {"id": "fra", "name": "🇫🇷 Ліга 1",        "country": "France",  "apisports_id": 61,  "fd_code": "FL1"},
+    {"id": "cl",  "name": "🏆 Ліга чемпіонів", "country": "Europe",  "apisports_id": 2,   "fd_code": "CL"},
+]
 
 
-async def today_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tz_offset = context.user_data.get("tz_offset", 0)
-    await update.message.reply_text("⏳ Завантажую матчі на сьогодні...")
-    matches = analyzer.get_today_matches()
-    if not matches:
-        await update.message.reply_text("📭 Сьогодні матчів не знайдено.")
-        return
-
-    sign = "+" if tz_offset >= 0 else ""
-    keyboard = []
-    for m in matches[:10]:
-        local_time = convert_time_to_user(m["time"], tz_offset)
-        label = f"{m['home']} vs {m['away']} ({local_time})"
-        keyboard.append([InlineKeyboardButton(label, callback_data=f"analyze_{m['home_id']}_{m['away_id']}")])
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        f"📅 *Матчі сьогодні* ({len(matches)} знайдено)\n"
-        f"🕐 Час вашого поясу UTC{sign}{tz_offset} · /timezone щоб змінити\n"
-        f"Оберіть для аналізу:",
-        parse_mode="Markdown",
-        reply_markup=reply_markup
-    )
-
-
-async def leagues_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    leagues = analyzer.get_leagues()
-    text = "🏆 *Доступні ліги:*\n\n"
-    for l in leagues:
-        text += f"• {l['name']} ({l['country']})\n"
-    await update.message.reply_text(text, parse_mode="Markdown")
-
-
-async def live_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tz_offset = context.user_data.get("tz_offset", 0)
-    await update.message.reply_text("🔴 Шукаю матчі що зараз грають...")
-    matches = analyzer.get_live_matches()
-
-    if not matches:
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("📅 Матчі сьогодні", callback_data="show_today"),
-            InlineKeyboardButton("🔄 Оновити", callback_data="refresh_live"),
-        ]])
-        await update.message.reply_text(
-            "😴 Зараз немає матчів в прямому ефірі.\n"
-            "Спробуйте /today щоб побачити розклад.",
-            reply_markup=keyboard
-        )
-        return
-
-    text = f"🔴 *Зараз грають* — {len(matches)} матч(ів)\n"
-    text += f"🕐 Ваш час: {format_user_time(tz_offset)}\n"
-    text += "─" * 28 + "\n\n"
-
-    for m in matches:
-        score_h = m.get("score_home", 0)
-        score_a = m.get("score_away", 0)
-        minute  = m.get("minute", "?")
-        league  = m.get("league", "")
-        status  = m.get("status", "LIVE")
-
-        status_icon = "🔴" if status in ("1H", "2H", "LIVE") else "⏸" if status == "HT" else "🟡"
-        min_str = f"{minute}'" if isinstance(minute, int) else str(minute)
-
-        text += (
-            f"{status_icon} *{m['home']}* {score_h}:{score_a} *{m['away']}*\n"
-            f"   ⏱ {min_str} | {league}\n\n"
-        )
-
-    keyboard = []
-    for m in matches[:8]:
-        label = f"📊 {m['home'][:12]} vs {m['away'][:12]}"
-        keyboard.append([InlineKeyboardButton(
-            label, callback_data=f"analyze_{m['home_id']}_{m['away_id']}"
-        )])
-    keyboard.append([
-        InlineKeyboardButton("🔄 Оновити", callback_data="refresh_live"),
-        InlineKeyboardButton("📅 Сьогодні", callback_data="show_today"),
-    ])
-
-    await update.message.reply_text(
-        text, parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def anomaly_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tz_offset = context.user_data.get("tz_offset", 0)
-    msg = await update.message.reply_text(
-        "🔍 Сканую live матчі на аномалії...\n"
-        "Шукаю: забивні команди без голів, xG >> фактичного тотал, топ-форма при порожньому матчі"
-    )
-    anomalies = analyzer.find_anomalies()
-
-    if not anomalies:
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("🔄 Повторити скан", callback_data="rescan_anomaly"),
-            InlineKeyboardButton("🔴 Live матчі", callback_data="refresh_live"),
-        ]])
-        await msg.edit_text(
-            "✅ Аномалій не знайдено.\n"
-            "Всі live матчі відповідають статистичним очікуванням.\n\n"
-            "Спробуйте через 10-15 хвилин.",
-            reply_markup=keyboard
-        )
-        return
-
-    text = f"🚨 *Аномальні матчі* — {len(anomalies)} знайдено\n"
-    text += f"🕐 {format_user_time(tz_offset)}\n"
-    text += "─" * 28 + "\n\n"
-
-    for i, a in enumerate(anomalies[:5], 1):
-        bar_filled = round(a["anomaly_score"] / 10)
-        bar_str    = "🟥" * bar_filled + "⬜" * (10 - bar_filled)
-        text += (
-            f"*{i}. {a['home']} {a['score']} {a['away']}*\n"
-            f"⏱ {a['minute']}' | {a['league']}\n"
-            f"💥 Сила аномалії: {bar_str} {a['anomaly_score']}/99\n"
-            f"🎯 Ймовірність голу (залишок): *{a['prob_goal']}%*\n"
-        )
-        for sig in a["signals"]:
-            text += f"  › {sig}\n"
-        text += "\n"
-
-    keyboard = []
-    for a in anomalies[:5]:
-        keyboard.append([InlineKeyboardButton(
-            f"📊 Аналіз: {a['home'][:10]} vs {a['away'][:10]}",
-            callback_data=f"analyze_{a['home_id']}_{a['away_id']}"
-        )])
-    keyboard.append([
-        InlineKeyboardButton("🔄 Оновити", callback_data="rescan_anomaly"),
-        InlineKeyboardButton("🔴 Всі live", callback_data="refresh_live"),
-    ])
-
-    await msg.edit_text(
-        text, parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    keyboard = ReplyKeyboardMarkup(
-        [[KeyboardButton("📍 Надіслати геолокацію", request_location=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-    await update.message.reply_text(
-        "📍 Натисніть кнопку нижче щоб поділитись геолокацією.\n"
-        "Бот визначить ваш часовий пояс і показуватиме час матчів у вашому місцевому часі.",
-        reply_markup=keyboard
-    )
-
-
-async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отримує геолокацію і визначає UTC offset за довготою"""
-    loc = update.message.location
-    lng = loc.longitude
-    # Груба оцінка UTC offset за довготою (±30 хв точність, без DST)
-    tz_offset = round(lng / 15)
-    tz_offset = max(-12, min(14, tz_offset))
-    context.user_data["tz_offset"] = tz_offset
-
-    sign = "+" if tz_offset >= 0 else ""
-    await update.message.reply_text(
-        f"✅ Часовий пояс встановлено: *UTC{sign}{tz_offset}*\n"
-        f"Поточний час у вас: *{format_user_time(tz_offset)}*\n\n"
-        f"Тепер /live та /today показуватимуть час у вашому місцевому часі.",
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardRemove()
-    )
-
-
-def format_user_time(tz_offset: int) -> str:
-    now_utc = datetime.now(timezone.utc)
-    user_time = now_utc + timedelta(hours=tz_offset)
-    sign = "+" if tz_offset >= 0 else ""
-    return f"{user_time.strftime('%H:%M')} (UTC{sign}{tz_offset})"
-
-
-def convert_time_to_user(utc_time_str: str, tz_offset: int) -> str:
-    """Конвертує рядок часу HH:MM з UTC в локальний час користувача"""
-    try:
-        h, m = map(int, utc_time_str.split(":"))
-        total = h * 60 + m + tz_offset * 60
-        total %= 24 * 60
-        return f"{total // 60:02d}:{total % 60:02d}"
-    except Exception:
-        return utc_time_str
-
-
-# ─── CALLBACKS ─────────────────────────────────────────────────────────────────
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-
-    if data.startswith("league_"):
-        league_id = data.split("_")[1]
-        teams = analyzer.get_teams(league_id)
-        context.user_data["league_id"] = league_id
-        context.user_data["teams"] = teams
-
-        keyboard = []
-        for i in range(0, min(len(teams), 20), 2):
-            row = [InlineKeyboardButton(teams[i]["name"], callback_data=f"home_{teams[i]['id']}")]
-            if i + 1 < len(teams):
-                row.append(InlineKeyboardButton(teams[i+1]["name"], callback_data=f"home_{teams[i+1]['id']}"))
-            keyboard.append(row)
-
-        await query.edit_message_text(
-            "🏠 Оберіть *домашню* команду:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    elif data.startswith("home_"):
-        home_id = data.split("_")[1]
-        teams = context.user_data.get("teams", [])
-        home_team = next((t for t in teams if str(t["id"]) == home_id), None)
-        context.user_data["home_id"] = home_id
-        context.user_data["home_name"] = home_team["name"] if home_team else "Home"
-
-        keyboard = []
-        filtered = [t for t in teams if str(t["id"]) != home_id]
-        for i in range(0, min(len(filtered), 20), 2):
-            row = [InlineKeyboardButton(filtered[i]["name"], callback_data=f"away_{filtered[i]['id']}")]
-            if i + 1 < len(filtered):
-                row.append(InlineKeyboardButton(filtered[i+1]["name"], callback_data=f"away_{filtered[i+1]['id']}"))
-            keyboard.append(row)
-
-        await query.edit_message_text(
-            f"✈️ Домашня: *{context.user_data['home_name']}*\nОберіть *гостьову* команду:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    elif data.startswith("away_") or data.startswith("analyze_"):
-        if data.startswith("away_"):
-            away_id = data.split("_")[1]
-            home_id = context.user_data.get("home_id")
+class FootballAnalyzer:
+    def __init__(self):
+        self.has_apisports    = bool(APISPORTS_KEY)
+        self.has_footballdata = bool(FOOTBALLDATA_KEY)
+        self._team_cache: dict = {}
+        if self.has_apisports:
+            self._src = "apisports"
+        elif self.has_footballdata:
+            self._src = "footballdata"
         else:
-            parts = data.split("_")
-            home_id, away_id = parts[1], parts[2]
+            self._src = "demo"
 
-        await query.edit_message_text("⏳ Аналізую статистику матчу...")
+    def source_label(self) -> str:
+        return {"apisports": "api-football.com ✅",
+                "footballdata": "football-data.org ✅",
+                "demo": "ДЕМО режим"}.get(self._src, "?")
 
+    # ── PUBLIC ──────────────────────────────────────────────────────────────────
+
+    def get_leagues(self) -> list:
+        return LEAGUES
+
+    def get_teams(self, league_id: str) -> list:
+        if self._src == "apisports":   return self._as_teams(league_id)
+        if self._src == "footballdata": return self._fd_teams(league_id)
+        teams = DEMO_TEAMS.get(league_id, DEMO_TEAMS["epl"])
+        for t in teams:
+            self._team_cache[t["id"]] = t
+        return teams
+
+    def get_live_matches(self) -> list:
+        """Повертає матчі що зараз грають"""
+        if self._src == "apisports":
+            return self._as_live()
+        elif self._src == "footballdata":
+            return self._fd_live()
+        else:
+            return self._demo_live()
+
+    def _as_live(self) -> list:
         try:
-            result = analyzer.analyze_match(home_id, away_id)
-            text = format_analysis(result)
-            keyboard = [[
-                InlineKeyboardButton("🔄 Новий матч", callback_data="new_match"),
-                InlineKeyboardButton("📊 Детальніше ↗", callback_data=f"detail_{home_id}_{away_id}")
-            ]]
-            await query.edit_message_text(
-                text, parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        except Exception as e:
-            logger.error(f"Analysis error: {e}")
-            await query.edit_message_text(
-                "❌ Помилка аналізу. Перевірте API ключ або спробуйте іншу пару команд.\n"
-                f"Деталі: {str(e)}"
-            )
+            data = self._as_req("fixtures", {"live": "all"})
+            result = []
+            for fix in data.get("response", [])[:20]:
+                teams  = fix["teams"]
+                goals  = fix["goals"]
+                status = fix["fixture"]["status"]
+                lg     = fix["league"]
+                result.append({
+                    "home":       teams["home"]["name"],
+                    "away":       teams["away"]["name"],
+                    "home_id":    str(teams["home"]["id"]),
+                    "away_id":    str(teams["away"]["id"]),
+                    "score_home": goals.get("home", 0) or 0,
+                    "score_away": goals.get("away", 0) or 0,
+                    "minute":     status.get("elapsed") or "?",
+                    "status":     status.get("short", "LIVE"),
+                    "league":     lg.get("name", ""),
+                })
+            return result
+        except Exception:
+            return []
 
-    elif data == "new_match":
-        await match_cmd_from_callback(query)
+    def _fd_live(self) -> list:
+        try:
+            data = self._fd_req("matches", {"status": "IN_PLAY,PAUSED,HALFTIME"})
+            result = []
+            for m in data.get("matches", [])[:20]:
+                h  = m["homeTeam"]
+                a  = m["awayTeam"]
+                sc = m.get("score", {}).get("fullTime", {})
+                hid = str(h["id"]); aid = str(a["id"])
+                minute = m.get("minute")
+                status_map = {"IN_PLAY": "LIVE", "PAUSED": "HT", "HALFTIME": "HT"}
+                raw_status = m.get("status", "IN_PLAY")
+                result.append({
+                    "home":       h.get("shortName") or h["name"],
+                    "away":       a.get("shortName") or a["name"],
+                    "home_id":    hid,
+                    "away_id":    aid,
+                    "score_home": sc.get("home", 0) or 0,
+                    "score_away": sc.get("away", 0) or 0,
+                    "minute":     minute or "?",
+                    "status":     status_map.get(raw_status, "LIVE"),
+                    "league":     m.get("competition", {}).get("name", ""),
+                })
+            return result
+        except Exception:
+            return []
 
-    elif data == "rescan_anomaly":
-        anomalies = analyzer.find_anomalies()
-        tz_offset = context.user_data.get("tz_offset", 0)
-        if not anomalies:
-            await query.edit_message_text(
-                "✅ Аномалій не знайдено — всі матчі в нормі.\nСпробуйте через 10-15 хвилин.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("🔄 Повторити", callback_data="rescan_anomaly"),
-                    InlineKeyboardButton("🔴 Live", callback_data="refresh_live"),
-                ]])
-            )
-            return
-        text = f"🚨 *Аномальні матчі* — {len(anomalies)} знайдено\n"
-        text += f"🕐 {format_user_time(tz_offset)}\n" + "─" * 28 + "\n\n"
-        for i, a in enumerate(anomalies[:5], 1):
-            bar_filled = round(a["anomaly_score"] / 10)
-            bar_str = "🟥" * bar_filled + "⬜" * (10 - bar_filled)
-            text += (
-                f"*{i}. {a['home']} {a['score']} {a['away']}*\n"
-                f"⏱ {a['minute']}' | {a['league']}\n"
-                f"💥 Сила: {bar_str} {a['anomaly_score']}/99\n"
-                f"🎯 Ймовірність голу: *{a['prob_goal']}%*\n"
-            )
-            for sig in a["signals"]:
-                text += f"  › {sig}\n"
-            text += "\n"
-        keyboard = []
-        for a in anomalies[:5]:
-            keyboard.append([InlineKeyboardButton(
-                f"📊 {a['home'][:10]} vs {a['away'][:10]}",
-                callback_data=f"analyze_{a['home_id']}_{a['away_id']}"
-            )])
-        keyboard.append([
-            InlineKeyboardButton("🔄 Оновити", callback_data="rescan_anomaly"),
-            InlineKeyboardButton("🔴 Всі live", callback_data="refresh_live"),
-        ])
-        await query.edit_message_text(text, parse_mode="Markdown",
-                                      reply_markup=InlineKeyboardMarkup(keyboard))
+    def _demo_live(self) -> list:
+        """Демо-дані для живих матчів — включають аномальні ситуації"""
+        return [
+            {"home": "Arsenal",        "away": "Chelsea",
+             "home_id": "2002",        "away_id": "2004",
+             "score_home": 0,          "score_away": 0,
+             "minute": 63,             "status": "2H",   "league": "АПЛ"},
+            {"home": "Real Madrid",    "away": "Atletico",
+             "home_id": "3001",        "away_id": "3003",
+             "score_home": 0,          "score_away": 0,
+             "minute": 71,             "status": "2H",   "league": "Ла Ліга"},
+            {"home": "Bayern Munich",  "away": "Dortmund",
+             "home_id": "4001",        "away_id": "4003",
+             "score_home": 1,          "score_away": 0,
+             "minute": 58,             "status": "2H",   "league": "Бундесліга"},
+            {"home": "Liverpool",      "away": "Man United",
+             "home_id": "2003",        "away_id": "2006",
+             "score_home": 0,          "score_away": 0,
+             "minute": 44,             "status": "1H",   "league": "АПЛ"},
+        ]
 
-    elif data == "refresh_live":
-        tz_offset = context.user_data.get("tz_offset", 0)
-        matches = analyzer.get_live_matches()
-        if not matches:
-            await query.edit_message_text(
-                "😴 Зараз немає матчів в прямому ефірі.\n"
-                "Спробуйте /today щоб побачити розклад.",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton("📅 Матчі сьогодні", callback_data="show_today"),
-                    InlineKeyboardButton("🔄 Оновити", callback_data="refresh_live"),
-                ]])
-            )
-            return
+    def get_today_matches(self) -> list:
+        if self._src == "apisports":    return self._as_today()
+        if self._src == "footballdata": return self._fd_today()
+        return [
+            {"home": "Динамо Київ",    "away": "Шахтар Донецьк", "home_id": "1001", "away_id": "1002", "time": "19:00"},
+            {"home": "Manchester City","away": "Arsenal",          "home_id": "2001", "away_id": "2002", "time": "21:00"},
+            {"home": "Real Madrid",    "away": "Barcelona",        "home_id": "3001", "away_id": "3002", "time": "20:00"},
+        ]
 
-        text = f"🔴 *Зараз грають* — {len(matches)} матч(ів)\n"
-        text += f"🕐 Ваш час: {format_user_time(tz_offset)}\n"
-        text += "─" * 28 + "\n\n"
-        for m in matches:
-            score_h = m.get("score_home", 0)
-            score_a = m.get("score_away", 0)
-            minute  = m.get("minute", "?")
-            league  = m.get("league", "")
-            status  = m.get("status", "LIVE")
-            status_icon = "🔴" if status in ("1H", "2H", "LIVE") else "⏸" if status == "HT" else "🟡"
-            min_str = f"{minute}'" if isinstance(minute, int) else str(minute)
-            text += f"{status_icon} *{m['home']}* {score_h}:{score_a} *{m['away']}*\n   ⏱ {min_str} | {league}\n\n"
+    def analyze_match(self, home_id: str, away_id: str) -> dict:
+        if self._src == "apisports":    return self._as_analyze(home_id, away_id)
+        if self._src == "footballdata": return self._fd_analyze(home_id, away_id)
+        return self._demo_analyze(home_id, away_id)
 
-        keyboard = []
-        for m in matches[:8]:
-            keyboard.append([InlineKeyboardButton(
-                f"📊 {m['home'][:12]} vs {m['away'][:12]}",
-                callback_data=f"analyze_{m['home_id']}_{m['away_id']}"
-            )])
-        keyboard.append([
-            InlineKeyboardButton("🔄 Оновити", callback_data="refresh_live"),
-            InlineKeyboardButton("📅 Сьогодні", callback_data="show_today"),
-        ])
-        await query.edit_message_text(text, parse_mode="Markdown",
-                                      reply_markup=InlineKeyboardMarkup(keyboard))
+    # ── API-FOOTBALL.COM ────────────────────────────────────────────────────────
 
-    elif data == "show_today":
-        tz_offset = context.user_data.get("tz_offset", 0)
-        matches = analyzer.get_today_matches()
-        sign = "+" if tz_offset >= 0 else ""
-        if not matches:
-            await query.edit_message_text("📭 Сьогодні матчів не знайдено.")
-            return
-        keyboard = []
-        for m in matches[:10]:
-            local_time = convert_time_to_user(m["time"], tz_offset)
-            label = f"{m['home']} vs {m['away']} ({local_time})"
-            keyboard.append([InlineKeyboardButton(label, callback_data=f"analyze_{m['home_id']}_{m['away_id']}")])
-        await query.edit_message_text(
-            f"📅 *Матчі сьогодні* ({len(matches)} знайдено)\n"
-            f"🕐 UTC{sign}{tz_offset} · Оберіть для аналізу:",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    def _as_req(self, endpoint: str, params: dict) -> dict:
+        r = requests.get(
+            f"https://v3.football.api-sports.io/{endpoint}",
+            headers={"x-apisports-key": APISPORTS_KEY},
+            params=params, timeout=12)
+        r.raise_for_status()
+        return r.json()
 
-    elif data.startswith("detail_"):
-        parts = data.split("_")
-        home_id, away_id = parts[1], parts[2]
-        result = analyzer.analyze_match(home_id, away_id)
-        text = format_detailed(result)
-        await query.edit_message_text(text, parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("◀️ Назад", callback_data=f"analyze_{home_id}_{away_id}")
-            ]]))
+    def _as_teams(self, league_id: str) -> list:
+        lg = next((l for l in LEAGUES if l["id"] == league_id), None)
+        if not lg:
+            return []
+        try:
+            data = self._as_req("teams", {"league": lg["apisports_id"], "season": 2024})
+            result = []
+            for item in data.get("response", []):
+                t = item["team"]
+                e = {"id": str(t["id"]), "name": t["name"]}
+                result.append(e)
+                self._team_cache[str(t["id"])] = e
+            return result or DEMO_TEAMS.get(league_id, [])
+        except Exception:
+            return DEMO_TEAMS.get(league_id, [])
 
+    def _as_today(self) -> list:
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            data = self._as_req("fixtures", {"date": today})
+            result = []
+            for fix in data.get("response", [])[:12]:
+                tm = fix["teams"]
+                result.append({
+                    "home": tm["home"]["name"], "away": tm["away"]["name"],
+                    "home_id": str(tm["home"]["id"]), "away_id": str(tm["away"]["id"]),
+                    "time": fix["fixture"]["date"][11:16],
+                })
+            return result
+        except Exception:
+            return []
 
-async def match_cmd_from_callback(query):
-    leagues = analyzer.get_leagues()
-    keyboard = []
-    for i in range(0, len(leagues), 2):
-        row = [InlineKeyboardButton(leagues[i]["name"], callback_data=f"league_{leagues[i]['id']}")]
-        if i + 1 < len(leagues):
-            row.append(InlineKeyboardButton(leagues[i+1]["name"], callback_data=f"league_{leagues[i+1]['id']}"))
-        keyboard.append(row)
-    await query.edit_message_text("🏆 Оберіть лігу:", reply_markup=InlineKeyboardMarkup(keyboard))
+    def _as_stats(self, team_id: str) -> dict:
+        try:
+            data = self._as_req("teams/statistics",
+                                {"team": team_id, "season": 2024, "league": 39})
+            d = data.get("response", {})
+            g = d.get("goals", {})
+            scored   = float(g.get("for",     {}).get("average", {}).get("total") or 1.2)
+            conceded = float(g.get("against", {}).get("average", {}).get("total") or 1.1)
+            fx = d.get("fixtures", {})
+            played = max(fx.get("played", {}).get("total", 1) or 1, 1)
+            clean  = d.get("clean_sheet", {}).get("total", 0) or 0
+            form_raw = d.get("form") or "WWDLL"
+            return {
+                "name": self._team_cache.get(str(team_id), {}).get("name", f"T{team_id}"),
+                "avg_scored": scored, "avg_conceded": conceded,
+                "form": form_raw[-6:],
+                "home_bonus": round(clean / played * 0.3, 2),
+            }
+        except Exception:
+            return self._fallback(team_id)
 
+    def _as_h2h(self, hid: str, aid: str) -> list:
+        try:
+            data = self._as_req("fixtures/headtohead", {"h2h": f"{hid}-{aid}", "last": 5})
+            result = []
+            for fix in data.get("response", []):
+                g  = fix["goals"]
+                hs = g.get("home", 0) or 0
+                as_= g.get("away", 0) or 0
+                result.append({
+                    "home": fix["teams"]["home"]["name"],
+                    "away": fix["teams"]["away"]["name"],
+                    "score": f"{hs}:{as_}",
+                    "winner": "home" if hs > as_ else "away" if as_ > hs else "draw",
+                    "date": fix["fixture"]["date"][:10],
+                })
+            return result
+        except Exception:
+            return []
 
-# ─── ФОРМАТУВАННЯ ──────────────────────────────────────────────────────────────
+    def _as_analyze(self, hid: str, aid: str) -> dict:
+        return self._build(self._as_stats(hid), self._as_stats(aid), self._as_h2h(hid, aid))
 
-def stars(pct: float) -> str:
-    if pct >= 70: return "🟢"
-    if pct >= 50: return "🟡"
-    return "🔴"
+    # ── FOOTBALL-DATA.ORG ───────────────────────────────────────────────────────
 
-def bar(pct: float, width: int = 10) -> str:
-    filled = round(pct / 100 * width)
-    return "█" * filled + "░" * (width - filled)
+    def _fd_req(self, endpoint: str, params: dict = None) -> dict:
+        r = requests.get(
+            f"https://api.football-data.org/v4/{endpoint}",
+            headers={"X-Auth-Token": FOOTBALLDATA_KEY},
+            params=params or {}, timeout=12)
+        r.raise_for_status()
+        return r.json()
 
-def format_analysis(r: dict) -> str:
-    h, a = r["home"], r["away"]
-    p = r["predictions"]
-    xg = r["xg"]
-    form_h = r["form_home"]
-    form_a = r["form_away"]
+    def _fd_teams(self, league_id: str) -> list:
+        lg = next((l for l in LEAGUES if l["id"] == league_id), None)
+        if not lg:
+            return []
+        try:
+            data = self._fd_req(f"competitions/{lg['fd_code']}/teams")
+            result = []
+            for t in data.get("teams", []):
+                e = {"id": str(t["id"]), "name": t.get("shortName") or t["name"]}
+                result.append(e)
+                self._team_cache[str(t["id"])] = e
+            return result or DEMO_TEAMS.get(league_id, [])
+        except Exception:
+            return DEMO_TEAMS.get(league_id, [])
 
-    winner_pct = max(p["home_win"], p["draw"], p["away_win"])
-    if p["home_win"] == winner_pct:
-        winner = f"1 ({h})"
-    elif p["away_win"] == winner_pct:
-        winner = f"2 ({a})"
-    else:
-        winner = "X (Нічия)"
+    def _fd_today(self) -> list:
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            data = self._fd_req("matches", {"dateFrom": today, "dateTo": today})
+            result = []
+            for m in data.get("matches", [])[:12]:
+                h = m["homeTeam"]
+                a = m["awayTeam"]
+                hid = str(h["id"]); aid = str(a["id"])
+                self._team_cache[hid] = {"id": hid, "name": h.get("shortName") or h["name"]}
+                self._team_cache[aid] = {"id": aid, "name": a.get("shortName") or a["name"]}
+                result.append({
+                    "home": h.get("shortName") or h["name"],
+                    "away": a.get("shortName") or a["name"],
+                    "home_id": hid, "away_id": aid,
+                    "time": m.get("utcDate", "")[11:16],
+                })
+            return result
+        except Exception:
+            return []
 
-    text = (
-        f"⚽ *{h}* vs *{a}*\n"
-        f"{'─' * 28}\n\n"
-        f"📈 *Форма*\n"
-        f"{h}: `{form_h}`\n"
-        f"{a}: `{form_a}`\n\n"
-        f"🎯 *Очікувані голи (xG)*\n"
-        f"{h}: `{xg['home']:.2f}` | {a}: `{xg['away']:.2f}`\n"
-        f"Загальний тотал: `{xg['total']:.2f}`\n\n"
-        f"📊 *Прогноз результату*\n"
-        f"1 ({h[:10]}): {stars(p['home_win'])} `{p['home_win']}%` {bar(p['home_win'])}\n"
-        f"X  Нічия:       {stars(p['draw'])} `{p['draw']}%` {bar(p['draw'])}\n"
-        f"2 ({a[:10]}): {stars(p['away_win'])} `{p['away_win']}%` {bar(p['away_win'])}\n\n"
-        f"⚡ *Ринки*\n"
-        f"Тотал більше 2.5: `{p['over25']}%` {stars(p['over25'])}\n"
-        f"Тотал більше 1.5: `{p['over15']}%` {stars(p['over15'])}\n"
-        f"Обидві забивають: `{p['btts']}%` {stars(p['btts'])}\n\n"
-        f"✅ *Основний прогноз:* {winner} ({winner_pct}%)\n"
-    )
+    def _fd_stats(self, team_id: str) -> dict:
+        try:
+            data = self._fd_req(f"teams/{team_id}/matches",
+                                {"status": "FINISHED", "limit": 10})
+            matches = data.get("matches", [])
+            if not matches:
+                return self._fallback(team_id)
+            sc = cc = clean = 0
+            form_chars = []
+            for m in matches:
+                is_home = str(m["homeTeam"]["id"]) == str(team_id)
+                ft = m.get("score", {}).get("fullTime", {})
+                hg = ft.get("home", 0) or 0
+                ag = ft.get("away", 0) or 0
+                mg = hg if is_home else ag
+                og = ag if is_home else hg
+                sc += mg; cc += og
+                if og == 0: clean += 1
+                form_chars.append("W" if mg > og else "D" if mg == og else "L")
+            n = len(matches)
+            t0 = matches[0]
+            raw = t0["homeTeam"] if str(t0["homeTeam"]["id"]) == str(team_id) else t0["awayTeam"]
+            name = self._team_cache.get(str(team_id), {}).get("name") or raw.get("shortName", f"T{team_id}")
+            return {
+                "name": name,
+                "avg_scored":   round(sc / n, 2),
+                "avg_conceded": round(cc / n, 2),
+                "form": "".join(form_chars[-6:]),
+                "home_bonus": round(clean / n * 0.3, 2),
+            }
+        except Exception:
+            return self._fallback(team_id)
 
-    if r.get("avg"):
-        avg = r["avg"]
-        text += (
-            f"\n📋 *Середня статистика*\n"
-            f"{h}: {avg['home_scored']:.1f} г/м | {avg['home_conceded']:.1f} пр/м\n"
-            f"{a}: {avg['away_scored']:.1f} г/м | {avg['away_conceded']:.1f} пр/м\n"
-        )
+    def _fd_h2h(self, hid: str, aid: str) -> list:
+        try:
+            data = self._fd_req(f"teams/{hid}/matches",
+                                {"status": "FINISHED", "limit": 20})
+            result = []
+            for m in data.get("matches", []):
+                ids = {str(m["homeTeam"]["id"]), str(m["awayTeam"]["id"])}
+                if str(hid) in ids and str(aid) in ids:
+                    ft = m.get("score", {}).get("fullTime", {})
+                    hg = ft.get("home", 0) or 0
+                    ag = ft.get("away", 0) or 0
+                    result.append({
+                        "home": m["homeTeam"].get("shortName") or m["homeTeam"]["name"],
+                        "away": m["awayTeam"].get("shortName") or m["awayTeam"]["name"],
+                        "score": f"{hg}:{ag}",
+                        "winner": "home" if hg > ag else "away" if ag > hg else "draw",
+                        "date": m.get("utcDate", "")[:10],
+                    })
+                    if len(result) >= 5:
+                        break
+            return result
+        except Exception:
+            return []
 
-    return text
+    def _fd_analyze(self, hid: str, aid: str) -> dict:
+        return self._build(self._fd_stats(hid), self._fd_stats(aid), self._fd_h2h(hid, aid))
 
+    # ── DEMO ────────────────────────────────────────────────────────────────────
 
-def format_detailed(r: dict) -> str:
-    h, a = r["home"], r["away"]
-    h2h = r.get("h2h", [])
+    def _demo_analyze(self, hid: str, aid: str) -> dict:
+        def find(tid):
+            if tid in self._team_cache:
+                return self._team_cache[tid]
+            for teams in DEMO_TEAMS.values():
+                for t in teams:
+                    if str(t["id"]) == tid:
+                        return t
+        H = find(hid); A = find(aid)
+        if not H or not A:
+            raise ValueError(f"Команди не знайдено: {hid}, {aid}")
+        return self._build(H, A, self._demo_h2h(H["name"], A["name"]))
 
-    text = f"🔬 *Детальний аналіз: {h} vs {a}*\n{'─'*28}\n\n"
+    def _demo_h2h(self, home: str, away: str) -> list:
+        return [
+            {"home": home, "away": away, "score": "2:0", "winner": "home", "date": "2024-10-15"},
+            {"home": away, "away": home, "score": "1:1", "winner": "draw", "date": "2024-04-20"},
+            {"home": home, "away": away, "score": "3:1", "winner": "home", "date": "2023-10-12"},
+            {"home": away, "away": home, "score": "0:1", "winner": "away", "date": "2023-04-18"},
+            {"home": home, "away": away, "score": "1:0", "winner": "home", "date": "2022-10-09"},
+        ]
 
-    if h2h:
-        text += "📖 *Очна статистика (H2H)*\n"
-        hw = sum(1 for m in h2h if m.get("winner") == "home")
-        aw = sum(1 for m in h2h if m.get("winner") == "away")
-        draws = len(h2h) - hw - aw
-        text += f"Зустрічей: {len(h2h)} | {h[:8]}: {hw}W | Нічиїх: {draws} | {a[:8]}: {aw}W\n\n"
-        text += "Останні матчі:\n"
-        for m in h2h[:5]:
-            text += f"• {m.get('date','?')} {m.get('home','')} {m.get('score','')} {m.get('away','')}\n"
-    else:
-        text += "📖 H2H статистика недоступна\n"
+    # ── SHARED ──────────────────────────────────────────────────────────────────
 
-    text += (
-        f"\n⚙️ *Методологія (Пуассон)*\n"
-        f"Розраховуємо xG як зважене середнє атаки домашньої команди та захисту гостьової. "
-        f"Потім для кожного рахунку (0:0 → 8:8) обчислюємо P(i,j) = e^-λ₁·λ₁ⁱ/i! × e^-λ₂·λ₂ʲ/j! "
-        f"та сумуємо для 1X2.\n"
-    )
-    return text
+    def _fallback(self, team_id: str) -> dict:
+        return {"name": self._team_cache.get(str(team_id), {}).get("name", f"T{team_id}"),
+                "avg_scored": 1.2, "avg_conceded": 1.1, "form": "WWDLL", "home_bonus": 0.10}
 
+    def _build(self, H: dict, A: dict, h2h: list) -> dict:
+        xg_h = H["avg_scored"] * 0.55 + A["avg_conceded"] * 0.45 + H.get("home_bonus", 0.10)
+        xg_a = A["avg_scored"] * 0.55 + H["avg_conceded"] * 0.45
+        return {
+            "home": H["name"], "away": A["name"],
+            "form_home": H.get("form", "?????"),
+            "form_away": A.get("form", "?????"),
+            "xg": {"home": round(xg_h, 2), "away": round(xg_a, 2),
+                   "total": round(xg_h + xg_a, 2)},
+            "predictions": self._poisson_predict(xg_h, xg_a),
+            "avg": {"home_scored":   H["avg_scored"],
+                    "home_conceded": H["avg_conceded"],
+                    "away_scored":   A["avg_scored"],
+                    "away_conceded": A["avg_conceded"]},
+            "h2h": h2h,
+            "source": self.source_label(),
+        }
 
-# ─── ЗАПУСК ────────────────────────────────────────────────────────────────────
+    # ── ANOMALY DETECTION ───────────────────────────────────────────────────────
 
-def main():
-    token = os.getenv("TELEGRAM_TOKEN")
-    if not token:
-        raise ValueError("❌ Встановіть TELEGRAM_TOKEN у файлі .env")
+    def find_anomalies(self) -> list:
+        """
+        Шукає live матчі де статистика команд вказує на гол,
+        але рахунок ще не відкрито або нижчий за очікуваний.
+        Повертає список аномалій з поясненням і score.
+        """
+        live = self.get_live_matches()
+        if not live:
+            return []
 
-    app = Application.builder().token(token).build()
+        anomalies = []
+        for m in live:
+            sh = m.get("score_home", 0)
+            sa = m.get("score_away", 0)
+            minute = m.get("minute")
+            status = m.get("status", "")
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("match", match_cmd))
-    app.add_handler(CommandHandler("today", today_cmd))
-    app.add_handler(CommandHandler("live", live_cmd))
-    app.add_handler(CommandHandler("anomaly", anomaly_cmd))
-    app.add_handler(CommandHandler("timezone", timezone_cmd))
-    app.add_handler(CommandHandler("leagues", leagues_cmd))
-    app.add_handler(MessageHandler(filters.LOCATION, location_handler))
-    app.add_handler(CallbackQueryHandler(button_handler))
+            # Пропускаємо перерву і матчі без хвилини
+            if status == "HT" or not isinstance(minute, int):
+                continue
 
-    logger.info("🤖 Бот запущено!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+            # Отримуємо статистику команд
+            try:
+                H = self._get_team_stats_cached(m["home_id"])
+                A = self._get_team_stats_cached(m["away_id"])
+            except Exception:
+                continue
 
+            xg_h = H["avg_scored"] * 0.55 + A["avg_conceded"] * 0.45 + H.get("home_bonus", 0.10)
+            xg_a = A["avg_scored"] * 0.55 + H["avg_conceded"] * 0.45
+            xg_total = xg_h + xg_a
 
-if __name__ == "__main__":
-    main()
+            # Очікувані голи на поточну хвилину
+            expected_by_now = xg_total * (minute / 90)
+            actual_goals    = sh + sa
+            goal_deficit    = round(expected_by_now - actual_goals, 2)
+
+            signals  = []
+            score    = 0  # чим більше — тим аномальніша ситуація
+
+            # ── Сигнал 1: обидві команди забивні, рахунок 0:0 після 55+ хв
+            if sh == 0 and sa == 0 and minute >= 55:
+                both_avg = H["avg_scored"] + A["avg_scored"]
+                if both_avg >= 2.8:
+                    signals.append(f"⚽ Обидві забивають в середньому {both_avg:.1f} г/м, але 0:0 на {minute}'")
+                    score += 35
+
+            # ── Сигнал 2: очікувані голи сильно більші за фактичні
+            if goal_deficit >= 1.0 and minute >= 40:
+                signals.append(f"📊 Очікувалось {expected_by_now:.1f} голів до {minute}', фактично: {actual_goals}")
+                score += int(goal_deficit * 20)
+
+            # ── Сигнал 3: обидві команди забивні, але тотал < 1 після 65 хв
+            if actual_goals <= 1 and minute >= 65:
+                if xg_total >= 2.5:
+                    signals.append(f"🔥 xG матчу {xg_total:.1f}, але лише {actual_goals} гол(ів) на {minute}'")
+                    score += 30
+
+            # ── Сигнал 4: атакуюча команда веде 0 голів при xG > 1.5
+            if sh == 0 and xg_h >= 1.5 and minute >= 50:
+                signals.append(f"🏠 {m['home']} забиває {H['avg_scored']:.1f} г/м — досі 0 голів на {minute}'")
+                score += 25
+
+            if sa == 0 and xg_a >= 1.3 and minute >= 50:
+                signals.append(f"✈️ {m['away']} забиває {A['avg_scored']:.1f} г/м — досі 0 голів на {minute}'")
+                score += 20
+
+            # ── Сигнал 5: форма обох команд переважно W/W, матч порожній
+            form_score_h = sum(3 if c=="W" else 1 if c=="D" else 0 for c in H.get("form",""))
+            form_score_a = sum(3 if c=="W" else 1 if c=="D" else 0 for c in A.get("form",""))
+            if form_score_h >= 12 and form_score_a >= 12 and actual_goals == 0 and minute >= 60:
+                signals.append(f"📈 Обидві команди у топ-формі (W-серії), матч порожній на {minute}'")
+                score += 20
+
+            # ── Сигнал 6: рахунок менший ніж у H2H зазвичай
+            avg_h2h_goals = self._avg_h2h_goals(m["home_id"], m["away_id"])
+            if avg_h2h_goals >= 2.8 and actual_goals == 0 and minute >= 50:
+                signals.append(f"📖 H2H середній тотал {avg_h2h_goals:.1f}, зараз {actual_goals} на {minute}'")
+                score += 15
+
+            if signals and score >= 25:
+                # Ймовірність голу в залишок матчу
+                remaining = max(90 - minute, 1)
+                xg_remaining = xg_total * (remaining / 90) * 1.15  # тиск зростає
+                prob_goal = round((1 - math.exp(-xg_remaining)) * 100)
+
+                anomalies.append({
+                    "home":       m["home"],
+                    "away":       m["away"],
+                    "home_id":    m["home_id"],
+                    "away_id":    m["away_id"],
+                    "score":      f"{sh}:{sa}",
+                    "minute":     minute,
+                    "league":     m.get("league", ""),
+                    "signals":    signals,
+                    "anomaly_score": min(score, 99),
+                    "prob_goal":  prob_goal,
+                    "xg_total":   round(xg_total, 2),
+                    "remaining":  remaining,
+                })
+
+        # Сортуємо за силою аномалії
+        anomalies.sort(key=lambda x: x["anomaly_score"], reverse=True)
+        return anomalies
+
+    def _get_team_stats_cached(self, team_id: str) -> dict:
+        """Кешовані статистики команди — спочатку демо/кеш, потім API"""
+        cache_key = f"stats_{team_id}"
+        if cache_key in self._team_cache:
+            return self._team_cache[cache_key]
+
+        # Спочатку шукаємо в демо даних
+        for teams in DEMO_TEAMS.values():
+            for t in teams:
+                if str(t["id"]) == str(team_id):
+                    self._team_cache[cache_key] = t
+                    return t
+
+        # Якщо є API — запитуємо
+        if self._src == "apisports":
+            stats = self._as_stats(team_id)
+        elif self._src == "footballdata":
+            stats = self._fd_stats(team_id)
+        else:
+            stats = self._fallback(team_id)
+
+        self._team_cache[cache_key] = stats
+        return stats
+
+    def _avg_h2h_goals(self, home_id: str, away_id: str) -> float:
+        """Середній тотал голів в очних зустрічах"""
+        try:
+            if self._src == "apisports":
+                h2h = self._as_h2h(home_id, away_id)
+            elif self._src == "footballdata":
+                h2h = self._fd_h2h(home_id, away_id)
+            else:
+                h2h = self._demo_h2h("H", "A")
+
+            if not h2h:
+                return 2.5
+            totals = []
+            for m in h2h:
+                parts = m["score"].split(":")
+                if len(parts) == 2:
+                    totals.append(int(parts[0]) + int(parts[1]))
+            return round(sum(totals) / len(totals), 1) if totals else 2.5
+        except Exception:
+            return 2.5
+
+    def _poisson(self, lam: float, k: int) -> float:
+        return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+    def _poisson_predict(self, xg_h: float, xg_a: float) -> dict:
+        hw = dr = aw = o25 = o15 = bt = 0.0
+        for i in range(9):
+            for j in range(9):
+                p = self._poisson(xg_h, i) * self._poisson(xg_a, j)
+                if   i > j:  hw += p
+                elif i == j: dr += p
+                else:        aw += p
+                if i + j > 2: o25 += p
+                if i + j > 1: o15 += p
+                if i > 0 and j > 0: bt += p
+        tot = hw + dr + aw
+        return {
+            "home_win": round(hw / tot * 100),
+            "draw":     round(dr / tot * 100),
+            "away_win": round(aw / tot * 100),
+            "over25":   round(o25 * 100),
+            "over15":   round(o15 * 100),
+            "btts":     round(bt * 100),
+        }
