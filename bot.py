@@ -214,6 +214,9 @@ async def anomaly_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
+
+async def timezone_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = ReplyKeyboardMarkup(
         [[KeyboardButton("📍 Надіслати геолокацію", request_location=True)]],
         resize_keyboard=True,
